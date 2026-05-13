@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xdddddd);
+// blue sky
+scene.background = new THREE.Color(0x80b0ff);
 
 const camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
 const loader = new GLTFLoader();
@@ -14,14 +15,38 @@ renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setAnimationLoop( animate );
 document.body.appendChild( renderer.domElement );
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+// warm sunlight
+const ambientLight = new THREE.AmbientLight(0xfff8e0, 1.5);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+// warm sunlight
+const directionalLight = new THREE.DirectionalLight(0xfff8e0, 2);
 directionalLight.position.set(10, 10, 10);
 scene.add(directionalLight);
 
-// 1. Create a variable outside the loader so the animate loop can access it
+// Setup fog:
+scene.fog = new THREE.Fog(0x87ceeb, 200, 3000); // blue fog that increases over distance and makes further objects foggy sky blue
+
+const gridSize = 5000;
+const gridDivisions = 200;
+const gridShiftingSize = gridSize / gridDivisions; // this calculated value contains the exact amount of shift that's needed to make the grids looks like they're infinitely moving beneath the plane
+
+// TODO: Make ground plane textured and simple trees or hills with fancy far off distance land model
+// Create the ground plane:
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(gridSize, gridSize), 
+               new THREE.MeshLambertMaterial({ color: 0x228B22 })); // setting ground to be green like grass for now
+ground.rotation.x = -Math.PI / 2; // horizontal ground
+ground.position.y = -100; // start the plane above the ground
+
+scene.add(ground);
+
+// Create a grid over the ground that can be hidden/toggled with 'g'
+const gridLinesOnGround = new THREE.GridHelper(gridSize, // size of the grid
+                                                gridDivisions); // number of lines (smaller means bigger sub squares)
+gridLinesOnGround.position.y = -99.0; // small amount above the ground plane
+gridLinesOnGround.visible = false; // hidden default
+scene.add(gridLinesOnGround);
+
 let airplane = null;
 let airplaneContainer = new THREE.Group();
 scene.add(airplaneContainer)
@@ -40,11 +65,9 @@ loader.load(
 
 
 const controls = new OrbitControls(camera, renderer.domElement);
-// Disable controls by default so they don't fight our custom camera logic
 controls.enabled = false; 
 
-// 2. Set up an object to track which keys are currently pressed
-const keys = { w: false, a: false, s: false, d: false, q: false, e: false, c: false };
+const keys = { w: false, a: false, s: false, d: false, q: false, e: false, c: false, shift: false };
 
 window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
@@ -58,24 +81,39 @@ window.addEventListener('keyup', (e) => {
 
 const clock = new THREE.Clock();
 
+const debugElement = document.getElementById('debug');
+
+let lastInputTime = 0; // Stores the elapsed time of the last key press
+
 function animate() {
-    // getDelta() returns the time in seconds since the last frame.
-    // Using this ensures your plane rotates at the same speed regardless of monitor refresh rate!
+    // plane rotates at the same speed regardless of monitor refresh rate
     const delta = clock.getDelta(); 
+    const elapsed = clock.getElapsedTime(); // Use the clock's total time
 
     if (airplane) {
         const turnSpeed = 2.0 * delta;
+        const targetFOV = keys.shift ? 100 : 75;
+        camera.fov += (targetFOV - camera.fov) * 0.1;
+
+        camera.updateProjectionMatrix();
+
+        // --- DETECT INPUT ---
+        // Check if any flight control keys are pressed
+        const isInteracting = keys.w || keys.a || keys.s || keys.d || keys.q || keys.e;
+        if (isInteracting) {
+            lastInputTime = elapsed;
+        }
 
         // --- FLIGHT CONTROLS ---
         // Roll (Z-axis)
         if (keys.a) airplaneContainer.rotateZ(turnSpeed);
         if (keys.d) airplaneContainer.rotateZ(-turnSpeed);
         
-        // Pitch (X-axis) - Swapped to X for standard Three.js Y-up orientation
+        // Pitch (X-axis) 
         if (keys.w) airplaneContainer.rotateX(turnSpeed);
         if (keys.s) airplaneContainer.rotateX(-turnSpeed);
         
-        // Yaw (Y-axis) - Swapped to Y for standard Three.js Y-up orientation
+        // Yaw (Y-axis) 
         if (keys.q) airplaneContainer.rotateY(turnSpeed);
         if (keys.e) airplaneContainer.rotateY(-turnSpeed);
 
@@ -88,23 +126,70 @@ function animate() {
             controls.update();
         } else {
             // Chase Camera Mode
-            controls.enabled = false;
+            // 1. Ensure the airplane's world matrix is up to date
+            airplaneContainer.updateMatrixWorld();
 
-            // Step A: Define where the camera SHOULD be relative to the airplane.
-            // (0 for X, 2 units up on Y, 8 units behind on Z). 
-            // Note: If your plane faces the opposite way, change Z to -8.
+            // 2. Define your fixed offset in LOCAL space
+            // (0 right/left, 25 units above the plane, -50 units behind the tail)
             const offset = new THREE.Vector3(0, 25, -50); 
 
-            // Step B: Apply the airplane's current position and rotation to that offset
-            const idealCameraPosition = offset.applyMatrix4(airplaneContainer.matrixWorld);
+            // 3. Convert that local offset to a world position 
+            // using the airplane's actual current orientation
+            const idealPosition = offset.applyMatrix4(airplaneContainer.matrixWorld);
 
-            // Step C: Lerp (Linear Interpolate) the camera's actual position toward the ideal position.
-            // The 0.05 value is the "smoothness" factor. Lower = slower/smoother, 1 = instant.
-            camera.position.lerp(idealCameraPosition, 0.05);
+            // 4. Smoothly move the camera to that ideal position
+            // Use a higher lerp factor (e.g., 0.1) for a tighter follow
+            camera.position.lerp(idealPosition, 0.1);
 
-            // Step D: Force the camera to look directly at the airplane
+            // 5. Update the camera's "Up" vector to match the airplane's "Up"
+            // This is what allows the camera to "Roll" with the wings
+            const airplaneUp = new THREE.Vector3(0, 1, 0).applyQuaternion(airplaneContainer.quaternion);
+            camera.up.lerp(airplaneUp, 0.1);
+
+            // 6. Point the camera at the plane
             camera.lookAt(airplaneContainer.position);
         }
+
+        // --- AUTO-LEVEL LOGIC ---
+        // If more than 0.5 seconds have passed since last input
+        if (elapsed - lastInputTime > 0.5) {
+            // Get current rotation in Euler (YXZ order is best for planes)
+            const currentEuler = new THREE.Euler().setFromQuaternion(airplaneContainer.quaternion, 'YXZ');
+            
+            // Create a target where Pitch (X) and Yaw (Y) stay same, but Roll (Z) is 0
+            const targetEuler = new THREE.Euler(currentEuler.x, currentEuler.y, 0, 'YXZ');
+            const targetQuaternion = new THREE.Quaternion().setFromEuler(targetEuler);
+            
+            // Smoothly move towards the level rotation
+            // 0.03 is the speed of leveling; adjust to your liking
+            airplaneContainer.quaternion.slerp(targetQuaternion, 0.01);
+        }
+
+        // DEBUG
+        if (clock.getElapsedTime() % 1 < 0.02) { 
+            console.clear();
+            
+            console.log(`Camera Pos: x:${camera.position.x.toFixed(2)}, y:${camera.position.y.toFixed(2)}, z:${camera.position.z.toFixed(2)}`);
+            
+            if (airplaneContainer) {
+                console.log(`Plane Pos: x:${airplaneContainer.position.x.toFixed(2)}, y:${airplaneContainer.position.y.toFixed(2)}, z:${airplaneContainer.position.z.toFixed(2)}`);
+            }
+
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            console.log(`Camera Dir: x:${direction.x.toFixed(2)}, y:${direction.y.toFixed(2)}, z:${direction.z.toFixed(2)}`);
+        }
+
+        const dir = new THREE.Vector3();
+        camera.getWorldDirection(dir);
+
+        debugElement.innerHTML = `
+            <b>Camera Pos:</b> ${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}<br>
+            <b>Plane Pos:</b> ${airplaneContainer.position.x.toFixed(1)}, ${airplaneContainer.position.y.toFixed(1)}, ${airplaneContainer.position.z.toFixed(1)}<br>
+            <b>Camera Dir:</b> ${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}
+        `;
+
+        renderer.render(scene, camera);
     }
 
     renderer.render( scene, camera );
