@@ -1,0 +1,11 @@
+Model Information:
+* title:	Soldier Character
+* source:	https://sketchfab.com/3d-models/soldier-character-dc88bfc47861426e8132b7b8d5174b48
+* author:	Muhamad Mirza Arrafi (https://sketchfab.com/nazidefenseforceofficial)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Soldier Character" (https://sketchfab.com/3d-models/soldier-character-dc88bfc47861426e8132b7b8d5174b48) by Muhamad Mirza Arrafi (https://sketchfab.com/nazidefenseforceofficial) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
