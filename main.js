@@ -138,6 +138,9 @@ const POINTS_PER_FIGHTER_KILL = 300;
 const EXPLOSION_PARTICLE_COUNT = 1200;
 const EXPLOSION_LIFETIME       = 2.0;
 
+const ENGINE_PARTICLE_OFFSET = 7;
+const ENGINE_PARTICLE_DEPTH = 33;
+
 let currentRingType = 'YELLOW'; // 'YELLOW' or 'GREEN'
 
 let currentMaxHealth = PLAYER_MAX_HEALTH;
@@ -215,23 +218,34 @@ scene.add(airplaneContainer);
 // ── Player jet ───────────────────────────────────────────────
 let airplane = null;
 
-const engineGlow = new THREE.PointLight(0xff4500, 5, 150);
-engineGlow.position.set(0, 0, -36);
-airplaneContainer.add(engineGlow);
-
-const engineGlowVisibleMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(2.5, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xff4500 })
-);
-engineGlowVisibleMesh.visible = false;
-engineGlowVisibleMesh.position.copy(engineGlow.position);
-airplaneContainer.add(engineGlowVisibleMesh);
-
 loader.load(airplanePath,
-    (gltf) => { airplane = gltf.scene; engineGlowVisibleMesh.visible = true; airplane.scale.setScalar(5); airplaneContainer.add(airplane); },
+    (gltf) => { airplane = gltf.scene; airplane.scale.setScalar(5); airplaneContainer.add(airplane); },
     (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '% loaded'); },
     (error) => { console.error('Airplane load error:', error); }
 );
+
+// ── Engine Particle Pool ─────────────────────────────────────
+const MAX_ENGINE_PARTICLES = 150;
+const engineParticles = [];
+let engineParticleIndex = 0;
+const engineParticleGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+
+for (let i = 0; i < MAX_ENGINE_PARTICLES; i++) {
+    // Unique material per particle so we can fade them individually
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 1 });
+    const mesh = new THREE.Mesh(engineParticleGeo, mat);
+    mesh.visible = false;
+    
+    // Add to the main scene, NOT the airplane container, so they get left behind in world space
+    scene.add(mesh); 
+    
+    engineParticles.push({
+        mesh: mesh,
+        life: 0,
+        maxLife: 0,
+        velocity: new THREE.Vector3()
+    });
+}
 
 // Load Explosion Model Template
 loader.load(explosionPath,
@@ -938,7 +952,6 @@ function damagePlayer(isCrash = false) {
 
         // replacing the airplane with the explosion
         if (airplane) airplane.visible = false; 
-        if (engineGlowVisibleMesh) engineGlowVisibleMesh.visible = false;
         if (explosionModelAsset && !activeExplosionModel) {
             activeExplosionModel = explosionModelAsset.clone();
             // Position it slightly offset or exactly at the container origin
@@ -954,7 +967,6 @@ function damagePlayer(isCrash = false) {
 
         // replacing the airplane with the explosion
         if (airplane) airplane.visible = false; 
-        if (engineGlowVisibleMesh) engineGlowVisibleMesh.visible = false;
         if (explosionModelAsset && !activeExplosionModel) {
             activeExplosionModel = explosionModelAsset.clone();
             // Position it slightly offset or exactly at the container origin
@@ -1011,6 +1023,55 @@ function createParticleExplosion(positionLocation) {
 
         scene.add(particle);
         particles.push(particle);
+    }
+}
+
+function emitEngineExhaust(worldPos, isBoosting) {
+    const p = engineParticles[engineParticleIndex];
+    p.mesh.position.copy(worldPos);
+    
+    // Randomize spawn position slightly around the engine nozzle
+    p.mesh.position.x += (Math.random() - 0.5) * 2.0;
+    p.mesh.position.y += (Math.random() - 0.5) * 2.0;
+    p.mesh.position.z += (Math.random() - 0.5) * 2.0;
+
+    p.mesh.visible = true;
+    
+    // Boost particles die faster because the plane is moving quicker
+    p.maxLife = isBoosting ? 0.3 + Math.random() * 0.2 : 0.5 + Math.random() * 0.3;
+    p.life = p.maxLife;
+
+    // Shift colors: Cyan for boost, Orange for normal flight
+    p.mesh.material.color.setHex(isBoosting ? 0x00ffff : 0xff6600);
+
+    // Give them a slight randomized drift outward
+    p.velocity.set(
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.5) * 15
+    );
+
+    // Increment and wrap around the pool index
+    engineParticleIndex = (engineParticleIndex + 1) % MAX_ENGINE_PARTICLES;
+}
+
+function updateEngineParticles(delta) {
+    for (const p of engineParticles) {
+        if (!p.mesh.visible) continue;
+        
+        p.life -= delta;
+        if (p.life <= 0) {
+            p.mesh.visible = false;
+            continue;
+        }
+
+        // Move the particle
+        p.mesh.position.addScaledVector(p.velocity, delta);
+        
+        // Shrink and fade out based on remaining life
+        const lifeRatio = p.life / p.maxLife;
+        p.mesh.scale.setScalar(lifeRatio);
+        p.mesh.material.opacity = lifeRatio;
     }
 }
 
@@ -1272,10 +1333,8 @@ window.addEventListener('mouseup', (e) => {
 // Clear shooting flag if the window loses focus
 window.addEventListener('blur', () => { isShooting = false; });
 
-let t = 0;
 // ── Reset ────────────────────────────────────────────────────
 function resetScene() {
-    t = 0;
 
     //remove the current resupply ring
     if (resupplyRing) {
@@ -1298,7 +1357,6 @@ function resetScene() {
         activeExplosionModel = null;
     }
     if (airplane) airplane.visible = true;
-    if (engineGlowVisibleMesh) engineGlowVisibleMesh.visible = true;
 
     for (const p of projectiles) scene.remove(p);
     projectiles = [];
@@ -1422,7 +1480,7 @@ function animate(time) {
     _prevTime = time;
 
     // Day/night cycle
-    t = Math.sin((time / 1000) * 0.02) * 0.5 + 0.5;
+    const t = Math.sin((time / 1000) * 0.02) * 0.5 + 0.5;
     scene.backgroundIntensity  = t * 1.5 + 0.1;
     scene.fog.color.setHSL(0.55, 1.0, t * 0.6 + 0.02);
     directionalLight.intensity = t * 2.5;
@@ -1564,14 +1622,21 @@ function animate(time) {
 
         airplaneContainer.translateZ(spd * delta);
 
-        camera.fov += ((keys.shift && !isBoostOnCooldown ? BOOST_FOV : INITIAL_FOV) - camera.fov) * 0.08;
+        const isBoosting = keys.shift && !isBoostOnCooldown;
+
+        camera.fov += ((isBoosting ? BOOST_FOV : INITIAL_FOV) - camera.fov) * 0.08;
         camera.updateProjectionMatrix();
 
-        const tgtI = keys.shift && !isBoostOnCooldown ? 30 : 5, tgtD = keys.shift && !isBoostOnCooldown ? 350 : 150, tgtS = keys.shift && !isBoostOnCooldown ? 3.5 : 1.0;
-        engineGlow.intensity += (tgtI - engineGlow.intensity) * 0.1;
-        engineGlow.distance  += (tgtD - engineGlow.distance)  * 0.2;
-        const gs = engineGlowVisibleMesh.scale.x + (tgtS - engineGlowVisibleMesh.scale.x) * 0.1;
-        engineGlowVisibleMesh.scale.set(gs, gs, gs);
+        // Calculate the absolute world position of the back of the jet
+        const leftEngineWorldPos = new THREE.Vector3(-ENGINE_PARTICLE_OFFSET, 0, -ENGINE_PARTICLE_DEPTH).applyMatrix4(airplaneContainer.matrixWorld);
+        const rightEngineWorldPos = new THREE.Vector3(ENGINE_PARTICLE_OFFSET, 0, -ENGINE_PARTICLE_DEPTH).applyMatrix4(airplaneContainer.matrixWorld);
+
+        // Emit more particles per frame when boosting for a thicker trail
+        const particlesToEmit = isBoosting ? 3 : 1;
+        for(let i = 0; i < particlesToEmit; i++) {
+            emitEngineExhaust(leftEngineWorldPos, isBoosting);
+            emitEngineExhaust(rightEngineWorldPos, isBoosting);
+        }
 
         const turn = PLAYER_TURN_RATE * delta;
 
@@ -1750,6 +1815,7 @@ function animate(time) {
 
     // ── World upkeep (runs even when player is dead) ───────────
     updateParticles(delta);
+    updateEngineParticles(delta);
 
     if (airplane) {
         gridLinesOnGround.position.x = Math.floor(airplaneContainer.position.x / gridShiftingSize) * gridShiftingSize;
