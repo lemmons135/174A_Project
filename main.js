@@ -10,10 +10,34 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xdddddd);
 
 const camera = new THREE.PerspectiveCamera(INITIAL_FOV, window.innerWidth / window.innerHeight, 2.0, 25000);
+const listener = new THREE.AudioListener();
+camera.add(listener);
+
 const loader = new GLTFLoader();
+const audioLoader = new THREE.AudioLoader();
+
 const airplanePath = 'airplane/scene.gltf';
 const enemyPath = 'enemy/soldier_character/scene.gltf';
 const explosionPath = 'explosion/scene.gltf';
+
+// player sound effects
+const playerShootPath = 'sounds/player_shoot.wav';
+const afterburnerPath = 'sounds/afterburner.wav';
+const afterburnerLoopPath = 'sounds/afterburner_continuous.wav';
+const planeExplosionPath = 'sounds/plane_explosion.mp3';
+const reloadPath = 'sounds/reload.wav';
+const playerDamagePath = 'sounds/player_damage.wav';
+// enviornment sound effects
+const ringDingPath = 'sounds/ring_ding.wav';
+const hitMarkerPath = 'sounds/hitmarker.wav';
+// menu sound effects
+const upgradePath = 'sounds/upgrade_purchase.wav';
+// combo sound effects
+const doubleKillPath = 'sounds/double_kill.wav';
+const tripleKillPath = 'sounds/triple_kill.wav';
+const quadKillPath = 'sounds/quad_kill.wav';
+const pentaKillPath = 'sounds/penta_kill.wav';
+
 
 // ── NEW Combo Kills State ───────────────────────────────────
 let comboCount = 0;
@@ -111,6 +135,43 @@ let isLockedOn = false;
 let isShooting = false;
 let lastShootTime = 0;
 
+
+// Load the sounds
+const playerShootSound = new THREE.Audio(listener);
+const afterburnerSound = new THREE.Audio(listener);
+const planeExplosionSound = new THREE.Audio(listener);
+const ringDingSound = new THREE.Audio(listener);
+const upgradeSound = new THREE.Audio(listener);
+const playerDamageSound = new THREE.Audio(listener);
+const reloadSound = new THREE.Audio(listener);
+const hitMarkerSound = new THREE.Audio(listener);
+const doubleKillSound = new THREE.Audio(listener);
+const tripleKillSound = new THREE.Audio(listener);
+const quadKillSound = new THREE.Audio(listener);
+const pentaKillSound = new THREE.Audio(listener);
+const afterburnerLoopSound = new THREE.Audio(listener);
+
+function loadSound(path, sound, volume = 0.3, loop = false) {
+    audioLoader.load(path, (buffer) => {
+        sound.setBuffer(buffer);
+        sound.setVolume(volume); // Scale down volume so it doesn't clip
+        sound.setLoop(loop);
+    });
+}
+loadSound(playerShootPath, playerShootSound);
+loadSound(afterburnerPath, afterburnerSound);
+loadSound(planeExplosionPath, planeExplosionSound);
+loadSound(ringDingPath, ringDingSound);
+loadSound(upgradePath, upgradeSound);
+loadSound(playerDamagePath, playerDamageSound);
+loadSound(reloadPath, reloadSound);
+loadSound(hitMarkerPath, hitMarkerSound);
+loadSound(doubleKillPath, doubleKillSound, 0.5);
+loadSound(tripleKillPath, tripleKillSound, 0.5);
+loadSound(quadKillPath, quadKillSound, 0.5);
+loadSound(pentaKillPath, pentaKillSound, 0.5);
+loadSound(afterburnerLoopPath, afterburnerLoopSound, 0.05, true);
+
 // ── NEW: Dynamic Difficulty Scaling Helpers ───────────────────
 function getCurrentEnemyJetSpeed() {
     // Jet speed increases by 15 units per 1000 score points
@@ -187,6 +248,8 @@ document.body.appendChild(ammoUI);
 function updateAmmoUI() {
     ammoUI.innerText = `Ammo: ${playerAmmo} / ${currentMaxAmmo}`;
     ammoUI.style.color = playerAmmo > (currentMaxAmmo * 0.3) ? '#00ffff' : '#ff4444';
+    if (reloadSound.isPlaying) reloadSound.stop();
+    reloadSound.play();
 }
 updateAmmoUI();
 
@@ -306,6 +369,10 @@ function updateShopUI() {
 function purchaseUpgrade(type, cost) {
     if (coins >= cost && upgrades[type] < UPGRADE_MAX[type]) {
         coins -= cost;
+
+        if(upgradeSound.isPlaying) upgradeSound.stop();
+        upgradeSound.play();
+
         upgrades[type]++;
         coinsUI.innerText = `Coins: $${coins}`;
         
@@ -331,6 +398,9 @@ function registerKill() {
     comboTimer = COMBO_WINDOW; // Reset the countdown window
 
     if (comboCount === 2) {
+        if (doubleKillSound.isPlaying) doubleKillSound.stop();
+        doubleKillSound.play();
+
         showComboMessage("DOUBLE KILL!<br><span style='font-size:20px; color:#00ffff;'>BOOST REFRESHED</span>");
         
         // Reset boost values and clear forced cooldowns
@@ -340,15 +410,24 @@ function registerKill() {
         boostLabel.innerText = 'BOOST ENERGY';
 
     } else if (comboCount === 3) {
+        if (tripleKillSound.isPlaying) tripleKillSound.stop();
+        tripleKillSound.play();
+
         // Grants +25 ammo back (clamped to your upgraded currentMaxAmmo limit)
         playerAmmo = Math.min(currentMaxAmmo, playerAmmo + 25);
         updateAmmoUI();
         showComboMessage("TRIPLE KILL!<br><span style='font-size:20px; color:#00ff00;'>+25 AMMO REFRESHED</span>");
 
     } else if (comboCount === 4) {
+        if (quadKillSound.isPlaying) quadKillSound.stop();
+        quadKillSound.play();
+
         showComboMessage("QUADRA KILL!");
 
     } else if (comboCount >= 5) {
+        if (pentaKillSound.isPlaying) pentaKillSound.stop();
+        pentaKillSound.play();
+
         showComboMessage("PENTA KILL!<br><span style='font-size:20px; color:#ff4444;'>+1 HP RECOVERED</span>");
         
         // Safely add a heart back up to the game's maximum health limit
@@ -703,12 +782,13 @@ loader.load(enemyPath,
         enemy.scale.set(5, 5, 5);
         enemy.health = ENEMY_HEALTH;
         enemy.position.set(0, getTerrainHeight(0, 1000) + 5, 1000);
-        enemy.visible = false;
+        enemy.visible = false; // THE ENEMY IS NOT VISIBLE CAUSE ITS JANK RN, UPDATE THIS TO MAKE IT AA GUN OR SMTH LATER
         scene.add(enemy);
     },
     (xhr) => { console.log('Enemy: ' + (xhr.loaded / xhr.total * 100) + '% loaded'); },
     (error) => { console.error('Enemy load error:', error); }
 );
+
 
 // ============================================================
 // Aerial enemy jets
@@ -811,6 +891,9 @@ function fireEnemyProjectile(jet) {
 }
 
 function damagePlayer(isCrash = false) {
+    if (playerDamageSound.isPlaying) playerDamageSound.stop();
+    playerDamageSound.play();
+
     if (playerHealth <= 0) return;
     if (isCrash) {
         playerHealth = 0;
@@ -840,6 +923,9 @@ function damagePlayer(isCrash = false) {
             // Position it slightly offset or exactly at the container origin
             airplaneContainer.add(activeExplosionModel);
         }
+
+        if (planeExplosionSound.isPlaying) planeExplosionSound.stop();
+        planeExplosionSound.play();
     }
 }
 
@@ -847,6 +933,9 @@ function updateHitMarker(isKill) {
     hitMarker.style.display = 'block';
     hitMarker.style.color = isKill ? '#ff0000' : '#ffffff'; // Red for kill, white for hit
     hitMarkerTimer = 0.5; // Sets the duration
+
+    if (hitMarkerSound.isPlaying) hitMarkerSound.stop();
+    hitMarkerSound.play();
 }
 
 function gaussian(mean, stdDev)
@@ -921,7 +1010,6 @@ function updateEnemyJets(delta) {
         const playerPos    = airplaneContainer.position;
         const distToPlayer = jet.position.distanceTo(playerPos);
         if (distToPlayer > MAX_ENEMY_DISTANCE) {
-            console.log(`Enemy jet out of bounds: ${jet.position}`);
             scene.remove(jet);
             enemyJets.splice(i, 1);
             updateJetsRemainingUI();
@@ -1196,6 +1284,9 @@ function fireProjectile() {
     projectile.homingTarget  = isHoming ? lockTarget : null;
     scene.add(projectile);
     projectiles.push(projectile);
+
+    if (playerShootSound.isPlaying) playerShootSound.stop();
+    playerShootSound.play();
 }
 
 function checkProjectileEnemyCollision(p, tgt) {
@@ -1214,6 +1305,7 @@ function updateEnemyHealthUI() {
 
 // ── Animate ──────────────────────────────────────────────────
 let _prevTime = 0;
+let soundPlayed = false;
 
 function animate(time) {
     const delta = Math.min((time - _prevTime) / 1000, 0.1);
@@ -1252,6 +1344,10 @@ function animate(time) {
         const ringDist = airplaneContainer.position.distanceTo(resupplyRing.position);
 
         if (ringDist < (ringRadius * resupplyRing.scale.x) + 20) { 
+
+            if (ringDingSound.isPlaying) ringDingSound.stop();
+            ringDingSound.play();
+
             if (!hasResupplied) {
                 if (currentRingType === 'YELLOW') {
                     playerAmmo = currentMaxAmmo;
@@ -1272,7 +1368,6 @@ function animate(time) {
                 const dist = 1000 + Math.random() * 1000;
 
                 let canSpawnGreen = playerHealth < PLAYER_MAX_HEALTH;
-                console.log(`Can spawn green: ${canSpawnGreen}`);
                 let isYellow = true;
 
                 if (!canSpawnGreen || Math.random() > 0.25) {
@@ -1319,22 +1414,36 @@ function animate(time) {
 
         // Processing Speed States Based on Controls & Overheat Status
         if (keys.shift && !isBoostOnCooldown && boostTimer > 0) {
-                    spd = boostSpeedUpgraded;
-                    boostTimer = Math.max(0, boostTimer - delta);
-                    
-                    if (boostTimer <= 0) {
-                        isBoostOnCooldown = true;
-                        boostCooldown = BOOST_COOLDOWN_TIME;
-                    }
-                } else {
-                    if (!isBoostOnCooldown) {
-                        // ◄── Uses dynamic currentMaxBoostTime instead of a hardcoded value
-                        boostTimer = Math.min(currentMaxBoostTime, boostTimer + delta * BOOST_RECHARGE_RATE);
-                    }
-                    if (keys.control) {
-                        spd = brakeSpeedUpgraded;
-                    }
-                }
+            if (!soundPlayed) {
+                soundPlayed = true;
+                afterburnerSound.stop();
+                afterburnerSound.play();
+            }
+
+            if (!afterburnerLoopSound.isPlaying) afterburnerLoopSound.play();
+
+
+            spd = boostSpeedUpgraded;
+            boostTimer = Math.max(0, boostTimer - delta);
+            
+            if (boostTimer <= 0) {
+                isBoostOnCooldown = true;
+                boostCooldown = BOOST_COOLDOWN_TIME;
+            }
+        } else {
+            afterburnerLoopSound.stop();
+
+            if (!isBoostOnCooldown) {
+                // ◄── Uses dynamic currentMaxBoostTime instead of a hardcoded value
+                boostTimer = Math.min(currentMaxBoostTime, boostTimer + delta * BOOST_RECHARGE_RATE);
+            }
+            if (keys.control) {
+                spd = brakeSpeedUpgraded;
+            }
+        }
+        if (!keys.shift) {
+            soundPlayed = false;
+        }
 
         // ── Render Graphical Output Gauge Percentage ─────────
         // ◄── Uses dynamic currentMaxBoostTime to compute correct UI width
@@ -1518,7 +1627,6 @@ function animate(time) {
         // Aerial Jet Collision
         for (const jet of enemyJets) {
             if (airplaneContainer.position.distanceTo(jet.position) < ENEMY_HIT_RADIUS) {
-                console.log(`Enemy jet hit player: ${jet.position}`);
                 damagePlayer(false); // Lose 1 HP
                 createParticleExplosion(jet.position);
                 scene.remove(jet);
