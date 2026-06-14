@@ -1,0 +1,11 @@
+Model Information:
+* title:	F-14A Tomcat with Mk.82
+* source:	https://sketchfab.com/3d-models/f-14a-tomcat-with-mk82-23e5c2e1ac574d4da557219d4e32c4bf
+* author:	Jeyhun1985 (https://sketchfab.com/Jeyhun1985)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "F-14A Tomcat with Mk.82" (https://sketchfab.com/3d-models/f-14a-tomcat-with-mk82-23e5c2e1ac574d4da557219d4e32c4bf) by Jeyhun1985 (https://sketchfab.com/Jeyhun1985) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

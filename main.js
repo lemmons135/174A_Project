@@ -16,9 +16,14 @@ camera.add(listener);
 const loader = new GLTFLoader();
 const audioLoader = new THREE.AudioLoader();
 
-const airplanePath = 'airplane/scene.gltf';
-const enemyPath = 'enemy/soldier_character/scene.gltf';
+const airplanePath = 'f-14a/scene.gltf';
+const alternateAirplanePath = 'airplane/scene.gltf'; // old jaas gripen model 
+const enemyPath = 'enemy/soldier_character/scene.gltf'; // not used anymore
 const explosionPath = 'explosion/scene.gltf';
+const bomberPath = 'bomber/scene.gltf';
+const fighter1Path = 'j-7d/scene.gltf';
+const fighter2Path = 'j-7e/scene.gltf';
+const fighterPaths = [fighter1Path, fighter2Path];
 
 // player sound effects
 const playerShootPath = 'sounds/player_shoot.wav';
@@ -26,12 +31,14 @@ const afterburnerPath = 'sounds/afterburner.wav';
 const afterburnerLoopPath = 'sounds/afterburner_continuous.wav';
 const planeExplosionPath = 'sounds/plane_explosion.mp3';
 const reloadPath = 'sounds/reload.wav';
+const outOfAmmoPath = 'sounds/no_ammo.wav';
 const playerDamagePath = 'sounds/player_damage.wav';
 // enviornment sound effects
 const ringDingPath = 'sounds/ring_ding.wav';
 const hitMarkerPath = 'sounds/hitmarker.wav';
 // menu sound effects
 const upgradePath = 'sounds/upgrade_purchase.wav';
+const mouseClickPath = 'sounds/mouse_click.wav';
 // combo sound effects
 const doubleKillPath = 'sounds/double_kill.wav';
 const tripleKillPath = 'sounds/triple_kill.wav';
@@ -107,17 +114,26 @@ const ENEMY_HEALTH            = 5;   // ground soldier HP
 
 const PLAYER_MAX_HEALTH       = 3;
 const PLAYER_TURN_RATE        = 2.0;
-const ENEMY_JET_HEALTH        = 3;
-const ENEMY_JET_SPEED         = 120;
-const ENEMY_JET_TURN_RATE     = 1.5; // max steer per second (lerp weight)
-const ENEMY_DETECT_RANGE      = 4000;
+const ENEMY_JET_HEALTH        = 10;
+const FIGHTER_JET_HEALTH      = 3;
+const ENEMY_JET_SPEED         = 120; // Bomber speed
+const ENEMY_JET_TURN_RATE     = 0.25; // Bomber steer
+const MAX_ENEMY_JET_SPEED     = 1.5 * ENEMY_JET_SPEED;
+const FIGHTER_JET_SPEED       = 300; // Fighter speed
+const FIGHTER_JET_TURN_RATE   = 2.0; // Fighter steer
+const MAX_FIGHTER_JET_SPEED   = 1.5 * FIGHTER_JET_SPEED;
+const ENEMY_DETECT_RANGE      = 3000;
 const ENEMY_ATTACK_RANGE      = 1800;
-const ENEMY_SHOOT_INTERVAL    = 2.5;
+const ENEMY_SHOOT_INTERVAL    = 3.0;
+const FIGHTER_JET_SHOOT_INTERVAL = 0.75;
 const ENEMY_PROJECTILE_SPEED  = 220;
+const FIGHTER_PROJECTILE_SPEED = 250;
 const ENEMY_PROJECTILE_SIZE   = 3;
-const ENEMY_HIT_RADIUS        = 60;  // collision radius for jets
+const ENEMY_HIT_RADIUS        = 75;  // collision radius for jets
+const FIGHTER_HIT_RADIUS      = 40;  // collision radius for fighter jets
 const PLAYER_HIT_RADIUS       = 40;  // collision radius for player
-const POINTS_PER_PLANE_KILL   = 300;
+const POINTS_PER_PLANE_KILL   = 500;
+const POINTS_PER_FIGHTER_KILL = 300;
 
 const EXPLOSION_PARTICLE_COUNT = 1200;
 const EXPLOSION_LIFETIME       = 2.0;
@@ -145,6 +161,8 @@ const upgradeSound = new THREE.Audio(listener);
 const playerDamageSound = new THREE.Audio(listener);
 const reloadSound = new THREE.Audio(listener);
 const hitMarkerSound = new THREE.Audio(listener);
+const outOfAmmoSound = new THREE.Audio(listener);
+const mouseClickSound = new THREE.Audio(listener);
 const doubleKillSound = new THREE.Audio(listener);
 const tripleKillSound = new THREE.Audio(listener);
 const quadKillSound = new THREE.Audio(listener);
@@ -159,44 +177,112 @@ function loadSound(path, sound, volume = 0.3, loop = false) {
     });
 }
 loadSound(playerShootPath, playerShootSound);
-loadSound(afterburnerPath, afterburnerSound);
+loadSound(afterburnerPath, afterburnerSound, 0.2);
 loadSound(planeExplosionPath, planeExplosionSound);
 loadSound(ringDingPath, ringDingSound);
 loadSound(upgradePath, upgradeSound);
 loadSound(playerDamagePath, playerDamageSound);
 loadSound(reloadPath, reloadSound);
 loadSound(hitMarkerPath, hitMarkerSound);
-loadSound(doubleKillPath, doubleKillSound, 0.5);
-loadSound(tripleKillPath, tripleKillSound, 0.5);
-loadSound(quadKillPath, quadKillSound, 0.5);
-loadSound(pentaKillPath, pentaKillSound, 0.5);
+loadSound(doubleKillPath, doubleKillSound, 0.7);
+loadSound(tripleKillPath, tripleKillSound, 0.7);
+loadSound(quadKillPath, quadKillSound, 0.7);
+loadSound(pentaKillPath, pentaKillSound, 0.7);
 loadSound(afterburnerLoopPath, afterburnerLoopSound, 0.05, true);
+loadSound(outOfAmmoPath, outOfAmmoSound);
+loadSound(mouseClickPath, mouseClickSound);
 
-// ── NEW: Dynamic Difficulty Scaling Helpers ───────────────────
-function getCurrentEnemyJetSpeed() {
-    // Jet speed increases by 15 units per 1000 score points
-    return ENEMY_JET_SPEED + (score / 1000) * 15;
-}
+// load the enemy airplane models
+let bomberModelAsset = null;
+let fighterModelAssets = [];
 
-function getCurrentEnemyShootInterval() {
-    // Fire rate increases -> Interval between shots decreases.
-    // Clamped to a minimum of 0.5s so it stays physically fair.
-    return Math.max(0.5, ENEMY_SHOOT_INTERVAL - (score / 1000) * 0.3);
-}
+loader.load(bomberPath,
+    (gltf) => { bomberModelAsset = gltf.scene; },
+    undefined, (error) => console.error('Bomber load error:', error)
+);
 
-function getCurrentEnemyProjectileSpeed() {
-    // Bullet speed increases by 25 units per 1000 score points
-    return ENEMY_PROJECTILE_SPEED + (score / 1000) * 25;
-}
-
-function getCurrentEnemyJetHealth() {
-    // Adds +1 maximum health point to newly spawned jets every 1500 score points
-    return ENEMY_JET_HEALTH + Math.floor(score / 1500);
-}
+fighterPaths.forEach(path => {
+    loader.load(path,
+        (gltf) => { fighterModelAssets.push(gltf.scene); },
+        undefined, (error) => console.error('Fighter load error:', error)
+    );
+});
 
 // ── Shared Scene Containers ──────────────────────────────────
 const airplaneContainer = new THREE.Group();
 scene.add(airplaneContainer);
+
+// ── Player jet ───────────────────────────────────────────────
+let airplane = null;
+
+const engineGlow = new THREE.PointLight(0xff4500, 5, 150);
+engineGlow.position.set(0, 0, -36);
+airplaneContainer.add(engineGlow);
+
+const engineGlowVisibleMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(2.5, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xff4500 })
+);
+engineGlowVisibleMesh.visible = false;
+engineGlowVisibleMesh.position.copy(engineGlow.position);
+airplaneContainer.add(engineGlowVisibleMesh);
+
+loader.load(airplanePath,
+    (gltf) => { airplane = gltf.scene; engineGlowVisibleMesh.visible = true; airplane.scale.setScalar(5); airplaneContainer.add(airplane); },
+    (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '% loaded'); },
+    (error) => { console.error('Airplane load error:', error); }
+);
+
+// Load Explosion Model Template
+loader.load(explosionPath,
+    (gltf) => { 
+        explosionModelAsset = gltf.scene; 
+        explosionModelAsset.scale.set(7, 7, 7);
+        explosionModelAsset.traverse((child) => {
+            if (child.isMesh) {
+                child.material = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.9 });
+            }
+        });
+    },
+    undefined,
+    (error) => { console.error('Explosion model load error:', error); }
+);
+
+// ── Ground soldier (existing enemy) ──────────────────────────
+loader.load(enemyPath,
+    (gltf) => {
+        enemy = gltf.scene;
+        enemy.scale.set(5, 5, 5);
+        enemy.health = ENEMY_HEALTH;
+        enemy.position.set(0, getTerrainHeight(0, 1000) + 5, 1000);
+        enemy.visible = false; // THE ENEMY IS NOT VISIBLE CAUSE ITS JANK RN, UPDATE THIS TO MAKE IT AA GUN OR SMTH LATER
+        scene.add(enemy);
+    },
+    (xhr) => { console.log('Enemy: ' + (xhr.loaded / xhr.total * 100) + '% loaded'); },
+    (error) => { console.error('Enemy load error:', error); }
+);
+
+// ── NEW: Dynamic Difficulty Scaling Helpers ───────────────────
+function getCurrentEnemyJetSpeed(type = 'bomber') {
+    const baseSpeed = type === 'fighter' ? FIGHTER_JET_SPEED : ENEMY_JET_SPEED;
+    return type === 'fighter' ? Math.min(baseSpeed + (score / 1000) * 15, MAX_FIGHTER_JET_SPEED) : Math.min(baseSpeed + (score / 1000) * 15, MAX_ENEMY_JET_SPEED);
+}
+
+function getCurrentEnemyShootInterval(type = 'bomber') {
+    // Fire rate increases -> Interval between shots decreases.
+    // Clamped to a minimum of 0.5s so it stays physically fair.
+    return type === 'fighter' ? Math.max(0.5, FIGHTER_JET_SHOOT_INTERVAL - (score / 1000) * 0.3) : Math.max(1.0, ENEMY_SHOOT_INTERVAL - (score / 1000) * 0.3);
+}
+
+function getCurrentEnemyProjectileSpeed(type = 'bomber') {
+    // Bullet speed increases by 25 units per 1000 score points
+    return type === 'fighter' ? FIGHTER_PROJECTILE_SPEED + (score / 1000) * 25 : ENEMY_PROJECTILE_SPEED + (score / 1000) * 25;
+}
+
+function getCurrentEnemyJetHealth(type = 'bomber') {
+    // Adds +1 maximum health point to newly spawned jets every 1500 score points
+    return type === 'fighter' ? FIGHTER_JET_HEALTH + Math.floor(score / 1500) : ENEMY_JET_HEALTH + Math.floor(score / 1500);
+}
 
 // ── Renderer ─────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({
@@ -728,104 +814,24 @@ gridLinesOnGround.visible = false;
 scene.add(gridLinesOnGround);
 
 // ── Resupply Ring ────────────────────────────────────────────
-const ringRadius = 100; // Slightly smaller base
-const resupplyRing = new THREE.Mesh(
-    new THREE.TorusGeometry(ringRadius, 10, 16, 100),
-    new THREE.MeshBasicMaterial({ color: 0xffff00, side: THREE.DoubleSide })
-);
-resupplyRing.position.set(0, 600, 1000);
-const newScale = 0.8 + Math.random() * 0.7;
-resupplyRing.scale.set(newScale, newScale, newScale);
-resupplyRing.material.color.set(0xffff00); // Set to yellow to start with
-scene.add(resupplyRing);
-
-// ── Player jet ───────────────────────────────────────────────
-let airplane = null;
-
-const engineGlow = new THREE.PointLight(0xff4500, 5, 150);
-engineGlow.position.set(0, 0, -36);
-airplaneContainer.add(engineGlow);
-
-const engineGlowVisibleMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(2.5, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xff4500 })
-);
-engineGlowVisibleMesh.visible = false;
-engineGlowVisibleMesh.position.copy(engineGlow.position);
-airplaneContainer.add(engineGlowVisibleMesh);
-
-loader.load(airplanePath,
-    (gltf) => { airplane = gltf.scene; airplane.rotation.y = -Math.PI / 2; airplaneContainer.add(airplane); engineGlowVisibleMesh.visible = true; },
-    (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '% loaded'); },
-    (error) => { console.error('Airplane load error:', error); }
-);
-
-// Load Explosion Model Template
-loader.load(explosionPath,
-    (gltf) => { 
-        explosionModelAsset = gltf.scene; 
-        explosionModelAsset.scale.set(7, 7, 7);
-        explosionModelAsset.traverse((child) => {
-            if (child.isMesh) {
-                child.material = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.9 });
-            }
-        });
-    },
-    undefined,
-    (error) => { console.error('Explosion model load error:', error); }
-);
-
-// ── Ground soldier (existing enemy) ──────────────────────────
-loader.load(enemyPath,
-    (gltf) => {
-        enemy = gltf.scene;
-        enemy.scale.set(5, 5, 5);
-        enemy.health = ENEMY_HEALTH;
-        enemy.position.set(0, getTerrainHeight(0, 1000) + 5, 1000);
-        enemy.visible = false; // THE ENEMY IS NOT VISIBLE CAUSE ITS JANK RN, UPDATE THIS TO MAKE IT AA GUN OR SMTH LATER
-        scene.add(enemy);
-    },
-    (xhr) => { console.log('Enemy: ' + (xhr.loaded / xhr.total * 100) + '% loaded'); },
-    (error) => { console.error('Enemy load error:', error); }
-);
-
+let resupplyRing = null;
+const ringRadius = 100;
+function resetRing() {
+    resupplyRing = new THREE.Mesh(
+        new THREE.TorusGeometry(ringRadius, 10, 16, 100),
+        new THREE.MeshBasicMaterial({ color: 0xffff00, side: THREE.DoubleSide })
+    );
+    resupplyRing.position.set(0, 600, 1000);
+    const newScale = 0.8 + Math.random() * 0.7;
+    resupplyRing.scale.set(newScale, newScale, newScale);
+    resupplyRing.material.color.set(0xffff00); // Set to yellow to start with
+    scene.add(resupplyRing);
+}
+resetRing();
 
 // ============================================================
 // Aerial enemy jets
 // ============================================================
-function createEnemyJetMesh() {
-    const group = new THREE.Group();
-    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x882222 });
-    const darkMat = new THREE.MeshLambertMaterial({ color: 0x441111 });
-
-    // Fuselage
-    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3.5, 38, 6), bodyMat);
-    fuselage.rotation.x = Math.PI / 2;
-    group.add(fuselage);
-
-    // Nose cone
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(2.5, 14, 6), bodyMat);
-    nose.rotation.x = Math.PI / 2;
-    nose.position.z = 26;
-    group.add(nose);
-
-    // Main wings
-    const wings = new THREE.Mesh(new THREE.BoxGeometry(55, 1.5, 16), bodyMat);
-    wings.position.z = -4;
-    group.add(wings);
-
-    // Horizontal tail
-    const tailH = new THREE.Mesh(new THREE.BoxGeometry(24, 1.5, 9), darkMat);
-    tailH.position.z = -21;
-    group.add(tailH);
-
-    // Vertical tail fin
-    const tailV = new THREE.Mesh(new THREE.BoxGeometry(1.5, 12, 9), darkMat);
-    tailV.position.set(0, 6, -21);
-    group.add(tailV);
-
-    return group;
-}
 
 // Generate dynamic spawn point taking player location into account
 function getSpawnPositionNearPlayer() {
@@ -850,21 +856,45 @@ function spawnEnemyJets() {
 }
 
 function spawnSingleEnemyJet(pos) {
-    const jet = createEnemyJetMesh();
-    jet.position.copy(pos);
+    // Wait until models load
+    if (!bomberModelAsset || fighterModelAssets.length === 0) {
+        setTimeout(() => spawnSingleEnemyJet(pos), 500);
+        return;
+    }
+
+    const isFighter = Math.random() > 0.5; // 50% chance to be a fighter
+    let jet;
+    let type;
+
+    if (isFighter) {
+        const randomFighter = fighterModelAssets[Math.floor(Math.random() * fighterModelAssets.length)];
+        jet = randomFighter.clone();
+        type = 'fighter';
+        jet.scale.set(8, 8, 8);
+    } else {
+        jet = bomberModelAsset.clone();
+        type = 'bomber';
+        jet.scale.set(0.05, 0.05, 0.05);
+    }
     
-    const dynamicSpeed = getCurrentEnemyJetSpeed(); 
+    // NOTE: Uncomment and adjust this if your models import too large or too small!
+    // jet.scale.set(5, 5, 5);
+
+    jet.position.copy(pos);
+    const dynamicSpeed = getCurrentEnemyJetSpeed(type); 
     
     jet.userData = {
-        health:       getCurrentEnemyJetHealth(),  
+        type:         type,
+        health:       getCurrentEnemyJetHealth(type),  
         state:        'PATROL',
         velocity:     new THREE.Vector3(dynamicSpeed, 0, 0), 
-        shootTimer:   Math.random() * getCurrentEnemyShootInterval(), 
+        shootTimer:   Math.random() * getCurrentEnemyShootInterval(type), 
         patrolCenter: pos.clone(),
         patrolAngle:  Math.random() * Math.PI * 2,
         patrolRadius: 700 + Math.random() * 300,
         patrolAlt:    pos.y,
     };
+    
     scene.add(jet);
     enemyJets.push(jet);
     updateJetsRemainingUI();
@@ -872,19 +902,26 @@ function spawnSingleEnemyJet(pos) {
 
 spawnEnemyJets();
 
-function fireEnemyProjectile(jet) {
+function fireEnemyProjectile(jet, specificDirection = null) {
     const p = new THREE.Mesh(
         new THREE.SphereGeometry(ENEMY_PROJECTILE_SIZE, 6, 6),
         new THREE.MeshBasicMaterial({ color: 0xffff00 })
     );
     p.position.copy(jet.position);
-    const dir = new THREE.Vector3().subVectors(airplaneContainer.position, jet.position).normalize();
     
+    let dir;
+    if (specificDirection) {
+        dir = specificDirection.clone();
+    } else {
+        dir = new THREE.Vector3().subVectors(airplaneContainer.position, jet.position).normalize();
+    }
+    
+    // Spread
     dir.x += (Math.random() - 0.5) * 0.12;
     dir.y += (Math.random() - 0.5) * 0.12;
     dir.normalize();
     
-    p.velocity = dir.multiplyScalar(getCurrentEnemyProjectileSpeed()); 
+    p.velocity = dir.multiplyScalar(getCurrentEnemyProjectileSpeed(jet.userData.type)); 
     p.lifetime = 0;
     scene.add(p);
     enemyProjectiles.push(p);
@@ -1018,13 +1055,37 @@ function updateEnemyJets(delta) {
         }
 
         // ── State transitions ──────────────────────────────────
-        if (d.state === 'PATROL' && distToPlayer < ENEMY_DETECT_RANGE) {
-            d.state = 'CHASE';
-        } else if (d.state === 'CHASE') {
-            if (distToPlayer < ENEMY_ATTACK_RANGE) d.state = 'ATTACK';
-            else if (distToPlayer > ENEMY_DETECT_RANGE * 1.5) d.state = 'PATROL';
-        } else if (d.state === 'ATTACK') {
-            if (distToPlayer > ENEMY_ATTACK_RANGE * 1.5) d.state = 'CHASE';
+        if (d.type === 'fighter') {
+            // Fighters chase, but break away if they get dangerously close
+            if (d.state === 'PATROL' && distToPlayer < ENEMY_DETECT_RANGE) {
+                d.state = 'CHASE';
+            } else if (d.state === 'CHASE') {
+                if (distToPlayer < 250) { // BREAKAWAY DISTANCE
+                    d.state = 'EVADE';
+                    // Generate a random evasive maneuver offset (biased slightly upward to avoid the ground)
+                    d.escapeOffset = new THREE.Vector3(
+                        (Math.random() - 0.5) * 2.0,
+                        Math.random() * 1.5, 
+                        (Math.random() - 0.5) * 2.0
+                    );
+                } else if (distToPlayer > ENEMY_DETECT_RANGE * 1.5) {
+                    d.state = 'PATROL';
+                }
+            } else if (d.state === 'EVADE') {
+                if (distToPlayer > 300) { // SAFE DISTANCE TO TURN BACK AROUND
+                    d.state = 'CHASE';
+                }
+            }
+        } else {
+            // Bomber (original strafing logic)
+            if (d.state === 'PATROL' && distToPlayer < ENEMY_DETECT_RANGE) {
+                d.state = 'CHASE';
+            } else if (d.state === 'CHASE') {
+                if (distToPlayer < ENEMY_ATTACK_RANGE) d.state = 'ATTACK';
+                else if (distToPlayer > ENEMY_DETECT_RANGE * 1.5) d.state = 'PATROL';
+            } else if (d.state === 'ATTACK') {
+                if (distToPlayer > ENEMY_ATTACK_RANGE * 1.5) d.state = 'CHASE';
+            }
         }
 
         // ── Desired direction per state ────────────────────────
@@ -1039,7 +1100,16 @@ function updateEnemyJets(delta) {
             desiredDir = new THREE.Vector3().subVectors(target, jet.position).normalize();
         } else if (d.state === 'CHASE') {
             desiredDir = new THREE.Vector3().subVectors(playerPos, jet.position).normalize();
-        } else { // ATTACK: strafe around player
+        } else if (d.state === 'EVADE') {
+            // Base direction: directly away from the player (fastest way to gain distance)
+            const awayDir = new THREE.Vector3().subVectors(jet.position, playerPos).normalize();
+            
+            // Blend the direct escape route with the random maneuver chosen during the state switch
+            if (d.escapeOffset) {
+                awayDir.add(d.escapeOffset);
+            }
+            desiredDir = awayDir.normalize();
+        } else if (d.state === 'ATTACK') {
             d.patrolAngle += delta * 0.7;
             const offset = new THREE.Vector3(
                 Math.cos(d.patrolAngle) * 600, 50, Math.sin(d.patrolAngle) * 600
@@ -1049,10 +1119,10 @@ function updateEnemyJets(delta) {
 
         // ── Steer + move ───────────────────────────────────────
         const currentDir = d.velocity.clone().normalize();
-        currentDir.lerp(desiredDir, Math.min(ENEMY_JET_TURN_RATE * delta, 1.0)).normalize();
+        const turnRate = d.type === 'fighter' ? FIGHTER_JET_TURN_RATE : ENEMY_JET_TURN_RATE;
+        currentDir.lerp(desiredDir, Math.min(turnRate * delta, 1.0)).normalize();
         
-        // ◄── MODIFIED: Multiplies by dynamic speed instead of static constant
-        d.velocity.copy(currentDir).multiplyScalar(getCurrentEnemyJetSpeed()); 
+        d.velocity.copy(currentDir).multiplyScalar(getCurrentEnemyJetSpeed(d.type)); 
         jet.position.addScaledVector(d.velocity, delta);
 
         // Keep above terrain / water
@@ -1064,13 +1134,32 @@ function updateEnemyJets(delta) {
             jet.lookAt(jet.position.clone().add(d.velocity));
 
         // ── Enemy shooting ─────────────────────────────────────
-        if (d.state === 'ATTACK') {
-            d.shootTimer -= delta;
-            if (d.shootTimer <= 0) {
-                // ◄── MODIFIED: Recalculates dynamically scaling pattern interval
-                const currentInterval = getCurrentEnemyShootInterval();
-                d.shootTimer = currentInterval + (Math.random() - 0.5) * 0.5;
-                fireEnemyProjectile(jet);
+        if (d.type === 'fighter') {
+            // Fighters only shoot straight forward when aimed at you IN CHASE MODE
+            if (d.state === 'CHASE') {
+                d.shootTimer -= delta;
+                if (d.shootTimer <= 0) {
+                    const toPlayer = new THREE.Vector3().subVectors(playerPos, jet.position).normalize();
+                    const forward = jet.getWorldDirection(new THREE.Vector3()); 
+                    
+                    if (forward.dot(toPlayer) > 0.98) { 
+                        const currentInterval = getCurrentEnemyShootInterval(d.type);
+                        d.shootTimer = currentInterval + (Math.random() - 0.5) * 0.2;
+                        fireEnemyProjectile(jet, forward); 
+                    } else {
+                        d.shootTimer = 0.1; 
+                    }
+                }
+            }
+        } else {
+            // Bombers omni-directional turret shooting
+            if (d.state === 'ATTACK') {
+                d.shootTimer -= delta;
+                if (d.shootTimer <= 0) {
+                    const currentInterval = getCurrentEnemyShootInterval(d.type);
+                    d.shootTimer = currentInterval + (Math.random() - 0.5) * 0.5;
+                    fireEnemyProjectile(jet);
+                }
             }
         }
 
@@ -1170,6 +1259,10 @@ window.addEventListener('mousedown', (e) => {
     if (isGameStarted && !isPaused && playerHealth > 0 && e.button === 0 && airplane) {
         isShooting = true;
     }
+    if (isPaused && e.button === 0) {
+        if (mouseClickSound.isPlaying) mouseClickSound.stop();
+        mouseClickSound.play();
+    }
 });
 
 window.addEventListener('mouseup', (e) => {
@@ -1179,8 +1272,18 @@ window.addEventListener('mouseup', (e) => {
 // Clear shooting flag if the window loses focus
 window.addEventListener('blur', () => { isShooting = false; });
 
+let t = 0;
 // ── Reset ────────────────────────────────────────────────────
 function resetScene() {
+    t = 0;
+
+    //remove the current resupply ring
+    if (resupplyRing) {
+        scene.remove(resupplyRing);
+        resupplyRing = null;
+    }
+    resetRing();
+
     airplaneContainer.position.set(0, 0, 0);
     airplaneContainer.quaternion.set(0, 0, 0, 1);
     currentMaxBoostTime = 3.0;
@@ -1257,7 +1360,14 @@ const MISSILE_TURN_RATE = 4.0; // steer strength per second (higher = tighter tr
 const MISSILE_SPEED     = PROJECTILE_SPEED * 1.4; // missiles are faster than dumb shots
 
 function fireProjectile() {
-    if (!airplane || playerAmmo <= 0) return;
+    if (!airplane) return;
+
+    if(playerAmmo <= 0){
+        if (outOfAmmoSound.isPlaying) outOfAmmoSound.stop();
+        outOfAmmoSound.play();
+        console.log("Out of ammo!");
+        return;
+    }
 
     playerAmmo--;
     updateAmmoUI();
@@ -1312,7 +1422,7 @@ function animate(time) {
     _prevTime = time;
 
     // Day/night cycle
-    const t = Math.sin((time / 1000) * 0.02) * 0.5 + 0.5;
+    t = Math.sin((time / 1000) * 0.02) * 0.5 + 0.5;
     scene.backgroundIntensity  = t * 1.5 + 0.1;
     scene.fog.color.setHSL(0.55, 1.0, t * 0.6 + 0.02);
     directionalLight.intensity = t * 2.5;
@@ -1365,7 +1475,9 @@ function animate(time) {
                 
                 hasResupplied = true;
                 const angle = Math.random() * Math.PI * 2;
-                const dist = 1000 + Math.random() * 1000;
+
+                // random distance from 500 to 1500
+                const dist = 500 + Math.random() * 1000;
 
                 let canSpawnGreen = playerHealth < PLAYER_MAX_HEALTH;
                 let isYellow = true;

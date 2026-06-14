@@ -1,0 +1,11 @@
+Model Information:
+* title:	Xian H-6 Strategic Bomber
+* source:	https://sketchfab.com/3d-models/xian-h-6-strategic-bomber-07b448a2e9924f48a5fc1c91529f2280
+* author:	Muhamad Mirza Arrafi (https://sketchfab.com/nazidefenseforceofficial)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Xian H-6 Strategic Bomber" (https://sketchfab.com/3d-models/xian-h-6-strategic-bomber-07b448a2e9924f48a5fc1c91529f2280) by Muhamad Mirza Arrafi (https://sketchfab.com/nazidefenseforceofficial) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
